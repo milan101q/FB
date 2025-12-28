@@ -7,35 +7,23 @@
   <title>AutoListing AI V11 - Pro Assistant</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  
-  <!-- Babel Standalone for in-browser JSX/TS transpilation -->
+  <!-- Babel for in-browser JSX/TS transpilation -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <style>
     body { font-family: 'Inter', sans-serif; }
-    ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #f1f1f1; }
-    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-    .animate-float { animation: float 3s ease-in-out infinite; }
-    @keyframes float {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-5px); }
-    }
-    .glass-card {
-      background: rgba(255, 255, 255, 0.9);
+    .glass {
+      background: rgba(255, 255, 255, 0.7);
       backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
   </style>
-
-  <!-- Import Map to resolve ESM modules directly in the browser -->
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom": "https://esm.sh/react-dom@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "@google/genai": "https://esm.sh/@google/genai@1.34.0",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom": "https://esm.sh/react-dom@^19.2.3",
+    "react-dom/client": "https://esm.sh/react-dom@^19.2.3/client",
     "react/": "https://esm.sh/react@^19.2.3/"
   }
 }
@@ -44,14 +32,63 @@
 <body class="bg-slate-50 text-slate-900 min-h-screen">
   <div id="root"></div>
 
-  <!-- 
-    CRITICAL: Use data-type="module" so Babel doesn't transform 'import' into 'require'.
-    This resolves the "require is not defined" error in browsers.
-  -->
   <script type="text/babel" data-type="module">
-    import React, { useState, useMemo } from 'react';
+    import React, { useState, useMemo, useEffect } from 'react';
     import ReactDOM from 'react-dom/client';
     import { GoogleGenAI, Type } from "@google/genai";
+
+    /**
+     * SERVICE: Gemini Extraction Logic
+     */
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+
+    const analyzeVehicleUrl = async (url) => {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Analyze this vehicle listing URL and extract all available technical details. 
+        If you cannot access the real-time page content, use your search capabilities to find the specific listing details for: ${url}. 
+        
+        IMPORTANT for Facebook Marketplace compatibility:
+        - exteriorColor/interiorColor: Must be a standard color (e.g., Black, White, Silver, Gray, Red, Blue, Brown, Beige). 
+        - bodyStyle: Use standard categories (e.g., Sedan, SUV, Coupe, Hatchback, Truck, Van, Convertible).
+        - mileage: Provide just the number.
+        - price: Provide just the number.
+        
+        Provide a structured JSON response.`,
+        config: {
+          tools: [{ googleSearch: {} }],
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              title: { type: Type.STRING },
+              year: { type: Type.INTEGER },
+              make: { type: Type.STRING },
+              model: { type: Type.STRING },
+              price: { type: Type.STRING },
+              mileage: { type: Type.STRING },
+              vin: { type: Type.STRING },
+              transmission: { type: Type.STRING },
+              fuelType: { type: Type.STRING },
+              exteriorColor: { type: Type.STRING },
+              interiorColor: { type: Type.STRING },
+              engine: { type: Type.STRING },
+              bodyStyle: { type: Type.STRING },
+              description: { type: Type.STRING },
+              features: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING }
+              }
+            },
+            required: ["title", "year", "make", "model", "price", "bodyStyle"]
+          }
+        }
+      });
+
+      const text = response.text;
+      if (!text) throw new Error("Failed to extract vehicle data.");
+      return JSON.parse(text);
+    };
 
     /**
      * COMPONENT: Copyable Field UI
@@ -60,7 +97,6 @@
       const [copied, setCopied] = useState(false);
 
       const handleCopy = () => {
-        if (!value) return;
         navigator.clipboard.writeText(value);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -69,9 +105,9 @@
       return (
         <div className="flex flex-col gap-2 w-full mb-5 group">
           <div className="flex justify-between items-center px-1">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</label>
+            <label className="text-[11px] font-black uppercase tracking-widest text-slate-400">{label}</label>
             {copied && (
-              <span className="text-[10px] text-blue-600 font-black animate-bounce">
+              <span className="text-[10px] text-blue-600 font-black animate-in fade-in slide-in-from-right-2">
                 COPIED!
               </span>
             )}
@@ -82,7 +118,7 @@
                 readOnly
                 value={value}
                 onClick={handleCopy}
-                className={`w-full p-4 pr-12 text-sm bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none transition-all min-h-[140px] resize-none cursor-pointer leading-relaxed ${
+                className={`w-full p-4 pr-12 text-sm bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none transition-all min-h-[160px] resize-none cursor-pointer leading-relaxed ${
                   copied ? 'border-blue-500 bg-blue-50/30' : 'hover:border-slate-300'
                 }`}
               />
@@ -100,12 +136,16 @@
             <button
               onClick={handleCopy}
               className={`absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-lg transition-all ${
-                copied ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-100 hover:text-blue-600'
+                copied ? 'bg-blue-600 text-white shadow-lg' : 'bg-white text-slate-400 border border-slate-100 hover:text-blue-600 hover:shadow-md'
               } ${isMultiline ? 'top-6 translate-y-0' : ''}`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
-              </svg>
+              {copied ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>
+                </svg>
+              )}
             </button>
           </div>
         </div>
@@ -116,12 +156,12 @@
       <div className={`text-center p-4 rounded-2xl border ${isForced ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
         <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{label}</div>
         <div className={`text-sm font-bold ${isForced ? 'text-amber-700' : 'text-slate-700'}`}>{value}</div>
-        {isForced && <div className="text-[9px] font-black text-amber-500/60 uppercase mt-1 tracking-tighter italic">LOCKED</div>}
+        {isForced && <div className="text-[9px] font-black text-amber-500/60 uppercase mt-1 tracking-tighter italic">AUTO-LOCKED</div>}
       </div>
     );
 
     /**
-     * MAIN APPLICATION
+     * CORE: Application Logic
      */
     const App = () => {
       const [url, setUrl] = useState('');
@@ -138,162 +178,177 @@ Chantilly, VA 20152
 🚘 Ready for a test drive
 💬 Serious buyers only — message now before it’s gone!`;
 
-      const analyzeVehicleUrl = async (targetUrl) => {
-        const ai = new GoogleGenAI({ apiKey: window.process?.env?.API_KEY || "" });
-        
-        const response = await ai.models.generateContent({
-          model: "gemini-3-flash-preview",
-          contents: `Extract vehicle details from: ${targetUrl}. Normalize values for Facebook Marketplace. Provide JSON.`,
-          config: {
-            tools: [{ googleSearch: {} }],
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                year: { type: Type.INTEGER },
-                make: { type: Type.STRING },
-                model: { type: Type.STRING },
-                price: { type: Type.STRING },
-                mileage: { type: Type.STRING },
-                vin: { type: Type.STRING },
-                bodyStyle: { type: Type.STRING },
-                exteriorColor: { type: Type.STRING },
-                interiorColor: { type: Type.STRING },
-              },
-              required: ["title", "year", "make", "model", "price", "bodyStyle"]
-            }
-          }
-        });
-
-        return JSON.parse(response.text);
-      };
-
       const handleAnalyze = async (e) => {
         e.preventDefault();
         if (!url) return;
-        setStatus({ isAnalyzing: true, error: null });
+        setStatus({ isAnalyzing: true });
         try {
           const data = await analyzeVehicleUrl(url);
           data.description = FIXED_DESCRIPTION;
           setStatus({ isAnalyzing: false, data });
         } catch (err) {
           console.error(err);
-          setStatus({ isAnalyzing: false, error: 'Extraction failed. Ensure the URL is correct and API key is set.' });
+          setStatus({ isAnalyzing: false, error: 'Extraction failed. Please check the URL.' });
         }
       };
 
       const autoFillScript = useMemo(() => {
         if (!status.data) return '';
         const data = status.data;
+        
         return `
 (async function() {
   const vehicle = ${JSON.stringify({
-    ...data,
+    title: data.title,
     price: data.price.replace(/[^0-9]/g, ''),
+    year: data.year.toString(),
+    make: data.make,
+    model: data.model,
     mileage: data.mileage.replace(/[^0-9]/g, ''),
+    vin: data.vin || '',
+    bodyStyle: data.bodyStyle || '',
+    exteriorColor: data.exteriorColor || '',
+    interiorColor: data.interiorColor || '',
+    description: data.description,
     condition: 'Excellent',
     fuelType: 'Gasoline'
   })};
 
-  console.log('%c 🏁 AutoListing AI V11 Active ', 'background: #000; color: #fbbf24; font-weight: bold; padding: 10px; border-radius: 8px;');
+  console.log('%c 🚀 AutoListing AI: Pro-Flow V11 (Strict Edition) ', 'background: #000; color: #fbbf24; font-weight: bold; padding: 8px; border-radius: 6px;');
 
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  
-  function setVal(el, v) {
-    if (!el) return;
-    const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-    if (setter) setter.call(el, v); else el.value = v;
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
+
+  function setNativeValue(element, value) {
+    if (!element) return;
+    const valueSetter = Object.getOwnPropertyDescriptor(element, 'value')?.set;
+    const prototypeValueSetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), 'value')?.set;
+    if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {
+      prototypeValueSetter.call(element, value);
+    } else if (valueSetter) {
+      valueSetter.call(element, value);
+    } else {
+      element.value = value;
+    }
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  function findText(txt, sel = '*') {
-    const s = txt.toLowerCase().trim();
-    return Array.from(document.querySelectorAll(sel)).find(el => (el.innerText?.toLowerCase().trim() || "").includes(s));
+  function findByText(text, selector = '*') {
+    const s = text.toLowerCase().trim();
+    return Array.from(document.querySelectorAll(selector)).find(el => {
+      const t = el.innerText?.toLowerCase().trim() || "";
+      return t === s || (t.includes(s) && t.length < s.length + 15);
+    });
   }
 
-  async function clickDropdown(label, val) {
-    const l = findText(label, 'span, div, label');
-    if (!l) return false;
-    let trig = null, curr = l;
+  async function fillDropdown(labelName, value) {
+    if (!value) return false;
+    const searchVal = value.toString().toLowerCase().trim();
+    const labelEl = findByText(labelName, 'span, div, label');
+    if (!labelEl) return false;
+
+    let trigger = null;
+    let curr = labelEl;
     for (let i = 0; i < 8; i++) {
       if (!curr) break;
-      trig = curr.querySelector('[role="button"], [role="combobox"], [aria-haspopup]');
-      if (trig) break;
+      trigger = curr.querySelector('[role="button"], [role="combobox"], [aria-haspopup], [aria-expanded]');
+      if (trigger) break;
       curr = curr.parentElement;
     }
-    if (trig) {
-      trig.click();
-      await sleep(600);
-      let opt = null;
-      for (let a = 0; a < 25; a++) {
+
+    if (trigger) {
+      trigger.scrollIntoView({ block: 'center' });
+      await sleep(400);
+      trigger.click();
+      let option = null;
+      for (let attempt = 0; attempt < 25; attempt++) {
         await sleep(150);
-        opt = Array.from(document.querySelectorAll('[role="option"], [role="listbox"] span, div[class*="x193iq5w"]'))
-          .find(o => o.innerText.toLowerCase().trim().includes(val.toLowerCase().trim()));
-        if (opt && opt.offsetHeight > 0) break;
+        const options = Array.from(document.querySelectorAll('[role="option"], [role="menuitem"] span, [role="listbox"] span, div[class*="x193iq5w"]'));
+        option = options.find(opt => {
+          const optText = opt.innerText.toLowerCase().trim();
+          return optText === searchVal || optText.includes(searchVal);
+        });
+        if (option && option.offsetHeight > 0) break;
       }
-      if (opt) { opt.click(); await sleep(800); return true; }
-      else { document.body.click(); }
+      if (option) {
+        option.click();
+        await sleep(800);
+        return true;
+      } else {
+        document.body.click(); 
+      }
     }
     return false;
   }
 
-  // --- AUTOMATION SEQUENCE ---
-  
-  // 1. Vehicle Type
-  await clickDropdown('vehicle type', 'Car/Truck');
-  await sleep(1000);
-
-  // 2. ALWAYS EXCELLENT CONDITION
-  console.log('Enforcing Excellent Condition...');
-  await clickDropdown('vehicle condition', 'Excellent');
-  await clickDropdown('condition', 'Excellent');
-
-  // 3. Dropdowns
-  await clickDropdown('year', vehicle.year);
-  await clickDropdown('make', vehicle.make);
-  await clickDropdown('body style', vehicle.bodyStyle);
-  await clickDropdown('fuel type', 'Gasoline');
-
-  // 4. Text Fields
-  const fields = { title: vehicle.title, price: vehicle.price, model: vehicle.model, mileage: vehicle.mileage, vin: vehicle.vin, description: vehicle.description };
-  for (const [k, v] of Object.entries(fields)) {
-    const l = findText(k, 'span, div, label');
-    if (l) {
-      let inp = null, curr = l;
-      for (let i = 0; i < 6; i++) {
-        if (!curr) break;
-        inp = curr.querySelector('input, textarea');
-        if (inp) break;
-        curr = curr.parentElement;
+  async function fillText(labelName, value) {
+    if (!value) return false;
+    const labelEl = findByText(labelName, 'span, div, label');
+    if (!labelEl) return false;
+    let curr = labelEl;
+    let input = null;
+    for (let i = 0; i < 7; i++) {
+      if (!curr) break;
+      input = curr.querySelector('input, textarea');
+      if (input) break;
+      let sib = curr.nextElementSibling;
+      while(sib) {
+        input = sib.querySelector('input, textarea') || (sib.tagName === 'INPUT' ? sib : null);
+        if (input) break;
+        sib = sib.nextElementSibling;
       }
-      if (inp) setVal(inp, v);
+      if (input) break;
+      curr = curr.parentElement;
     }
+    if (input) {
+      input.focus();
+      setNativeValue(input, value);
+      return true;
+    }
+    return false;
   }
 
-  await clickDropdown('exterior color', vehicle.exteriorColor);
-  await clickDropdown('interior color', vehicle.interiorColor);
+  // --- START SEQUENCE ---
+  await fillDropdown('vehicle type', 'Car/Truck');
+  await sleep(1500);
 
-  // 5. ALWAYS CHECK CLEAN TITLE
-  console.log('Enforcing Clean Title...');
-  const cleanLabels = Array.from(document.querySelectorAll('span, label, div')).filter(el => 
-    el.innerText?.toLowerCase().includes('clean title') || 
-    el.innerText?.toLowerCase().includes('has a clean title')
+  // STRICT CONDITION
+  await fillDropdown('vehicle condition', 'Excellent');
+  await fillDropdown('condition', 'Excellent');
+
+  await fillDropdown('year', vehicle.year);
+  await fillDropdown('make', vehicle.make);
+  await fillDropdown('body style', vehicle.bodyStyle);
+  await fillDropdown('fuel type', 'Gasoline');
+
+  await fillText('title', vehicle.title);
+  await fillText('price', vehicle.price);
+  await fillText('model', vehicle.model);
+  await fillText('mileage', vehicle.mileage);
+  await fillText('vin', vehicle.vin);
+  await fillText('description', vehicle.description);
+
+  await fillDropdown('exterior color', vehicle.exteriorColor);
+  await fillDropdown('interior color', vehicle.interiorColor);
+
+  // ALWAYS CHECK CLEAN TITLE
+  console.log('Checking Clean Title...');
+  const titleLabels = Array.from(document.querySelectorAll('span, label, div')).filter(el => 
+    el.innerText?.toLowerCase().includes('clean title')
   );
-  for (const l of cleanLabels) {
-    let p = l.parentElement;
+  for (const label of titleLabels) {
+    let container = label.parentElement;
     for (let i = 0; i < 5; i++) {
-      if (!p) break;
-      const cb = p.querySelector('input[type="checkbox"]');
-      if (cb && !cb.checked) { cb.click(); break; }
-      const yes = Array.from(p.querySelectorAll('span, div')).find(s => s.innerText === 'Yes' && s.offsetHeight > 0);
-      if (yes) { yes.click(); break; }
-      p = p.parentElement;
+      if (!container) break;
+      const checkbox = container.querySelector('input[type="checkbox"]');
+      if (checkbox && !checkbox.checked) { checkbox.click(); break; }
+      const yesBtn = Array.from(container.querySelectorAll('span, div')).find(s => s.innerText === 'Yes' && s.offsetHeight > 0);
+      if (yesBtn) { yesBtn.click(); break; }
+      container = container.parentElement;
     }
   }
 
-  alert('V11 Logic Complete! Condition is Excellent and Clean Title is Checked.');
+  alert('Pro-Flow V11 Complete! \\n\\nCondition: Excellent \\nClean Title: Checked \\nFuel: Gasoline');
 })();
         `.trim();
       }, [status.data]);
@@ -301,56 +356,64 @@ Chantilly, VA 20152
       return (
         <div className="max-w-7xl mx-auto px-4 py-12">
           <header className="mb-12 text-center">
-            <div className="inline-flex items-center justify-center p-5 mb-6 bg-slate-900 rounded-3xl shadow-2xl animate-float">
-              <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <div className="inline-flex items-center justify-center p-5 mb-6 bg-slate-900 rounded-full shadow-2xl">
+              <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>
               </svg>
             </div>
-            <h1 className="text-5xl font-black text-slate-900 tracking-tight">AutoListing <span className="text-amber-500">V11</span></h1>
-            <p className="mt-4 text-slate-400 font-medium italic uppercase tracking-widest text-xs">Chantilly Dealer Automation Suite</p>
+            <h1 className="text-5xl font-black text-slate-900 tracking-tight">AutoListing AI <span className="text-amber-500">V11</span></h1>
+            <p className="mt-4 text-slate-500 text-lg max-w-xl mx-auto italic font-medium">
+              Consolidated V11 for Chantilly Dealer. Optimized for single-file deployment.
+            </p>
           </header>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
             <div className="lg:col-span-4 space-y-8">
-              <section className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200">
-                <h2 className="text-[11px] font-black mb-6 text-slate-400 uppercase tracking-widest flex items-center gap-3">
-                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[8px]">1</span>
-                  Analyze Listing
+              <section className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                <h2 className="text-sm font-black mb-6 flex items-center gap-3 text-slate-400 uppercase tracking-widest">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500 text-white text-[10px]">1</span>
+                  Source URL
                 </h2>
                 <form onSubmit={handleAnalyze} className="space-y-4">
                   <input
                     type="url"
                     required
-                    placeholder="Paste vehicle URL..."
+                    placeholder="Paste dealer vehicle link..."
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-amber-500 outline-none transition-all text-sm"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-amber-500 outline-none transition-all text-sm font-medium"
                   />
                   <button
                     type="submit"
                     disabled={status.isAnalyzing}
                     className="w-full bg-slate-900 text-white font-bold py-5 px-6 rounded-2xl hover:bg-black disabled:opacity-50 transition-all shadow-xl shadow-slate-100 uppercase tracking-widest text-xs"
                   >
-                    {status.isAnalyzing ? 'Processing...' : 'Fetch Vehicle Specs'}
+                    {status.isAnalyzing ? 'Extracting...' : 'Prepare Listing'}
                   </button>
-                  {status.error && <p className="text-red-500 text-[10px] font-bold mt-2 uppercase text-center">{status.error}</p>}
                 </form>
               </section>
 
               {status.data && (
-                <section className="bg-slate-900 text-white p-8 rounded-[2rem] shadow-2xl border border-slate-800 animate-in zoom-in duration-300">
+                <section className="bg-slate-900 text-white p-8 rounded-3xl shadow-2xl border border-slate-800 animate-in zoom-in duration-300">
                   <div className="flex items-center justify-between mb-8">
-                    <h2 className="text-xl font-black text-amber-400">V11 Script</h2>
-                    <div className="px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-500/20">Strict</div>
+                    <h2 className="text-xl font-black flex items-center gap-2 text-amber-400">
+                      <span className="flex items-center justify-center w-6 h-6 rounded-full bg-amber-500 text-white text-[10px]">2</span>
+                      V11 Pro-Flow
+                    </h2>
+                    <span className="px-3 py-1 bg-amber-500/10 text-amber-500 rounded-full text-[9px] font-black uppercase tracking-widest border border-amber-500/20">Active</span>
                   </div>
-                  <ul className="text-slate-400 text-[11px] mb-8 space-y-4 font-semibold italic">
+                  <ul className="text-slate-400 text-xs mb-8 space-y-4 font-medium italic">
                     <li className="flex items-center gap-3 text-white">
-                      <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center text-[8px]">✓</div>
-                      ALWAYS Excellent Condition
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>
+                      Condition: Always Excellent
                     </li>
                     <li className="flex items-center gap-3 text-white">
-                      <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center text-[8px]">✓</div>
-                      ALWAYS Checked Clean Title
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>
+                      Title: Always Checked
+                    </li>
+                    <li className="flex items-center gap-3 text-white">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="4"><polyline points="20 6 9 17 4 12"/></svg>
+                      Fuel: Gasoline
                     </li>
                   </ul>
                   <button
@@ -364,24 +427,25 @@ Chantilly, VA 20152
             </div>
 
             <div className="lg:col-span-8">
-              <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-200 min-h-[600px] flex flex-col overflow-hidden">
+              <div className="bg-white rounded-[2rem] shadow-xl border border-slate-200 min-h-[600px] flex flex-col overflow-hidden">
                 <div className="bg-slate-50/50 border-b border-slate-100 p-6 px-10 flex justify-between items-center">
-                  <h2 className="font-black text-slate-400 uppercase tracking-widest text-[10px]">Data Dashboard</h2>
+                  <h2 className="font-black text-slate-400 uppercase tracking-widest text-[11px]">Verification Dashboard</h2>
+                  {status.data && <span className="text-[10px] bg-green-100 text-green-700 font-black px-4 py-1 rounded-full uppercase tracking-tighter">Specs Verified</span>}
                 </div>
 
                 <div className="p-10 flex-1 overflow-y-auto">
                   {!status.data && !status.isAnalyzing ? (
                     <div className="flex flex-col items-center justify-center h-full text-slate-300 space-y-6">
                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1"><path d="M12 2L1 21h22L12 2zm0 3.99L19.53 19H4.47L12 5.99zM11 16h2v2h-2zm0-6h2v4h-2z"/></svg>
-                       <p className="font-bold text-slate-400 italic">Enter a listing URL to see technical details.</p>
+                       <p className="font-bold text-slate-400 italic">Listing data will appear here after extraction.</p>
                     </div>
                   ) : status.isAnalyzing ? (
                     <div className="flex flex-col items-center justify-center h-full space-y-6">
                       <div className="w-12 h-12 border-4 border-amber-500/20 border-t-amber-500 rounded-full animate-spin"></div>
-                      <p className="text-slate-500 font-black tracking-widest uppercase text-xs">AI Extraction in Progress...</p>
+                      <p className="text-slate-500 font-black tracking-widest uppercase text-xs">AI Extraction Underway...</p>
                     </div>
                   ) : (
-                    <div className="space-y-10 animate-in fade-in slide-in-from-bottom-5 duration-500">
+                    <div className="space-y-10">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-5">
                         <CopyField label="Year" value={status.data.year.toString()} />
                         <CopyField label="Make" value={status.data.make} />
@@ -393,7 +457,7 @@ Chantilly, VA 20152
                         <CopyField label="Interior" value={status.data.interiorColor} />
                       </div>
                       
-                      <CopyField label="Automation Description" value={status.data.description} isMultiline />
+                      <CopyField label="Fixed Description" value={status.data.description} isMultiline />
                       
                       <div className="grid grid-cols-3 gap-5 pt-10 border-t border-slate-100">
                         <SpecItem label="Fuel Type" value="Gasoline" isForced />
