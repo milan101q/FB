@@ -1,0 +1,5 @@
+{
+  "name": "AutoListing AI - FB Marketplace Assistant",
+  "description": "An intelligent tool that extracts vehicle details from dealership URLs and generates optimized Facebook Marketplace listings with one-click copy-paste functionality.",
+  "requestFramePermissions": []
+}
