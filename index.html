@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,12 +15,12 @@
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
     }
-    .animate-pulse-slow {
-      animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    .animate-float {
+      animation: float 3s ease-in-out infinite;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: .7; }
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
     }
   </style>
   <script type="importmap">
@@ -49,9 +48,6 @@
       window.process = { env: {} };
     }
 
-    /**
-     * CORE: Application Logic
-     */
     const App = () => {
       const [url, setUrl] = useState('');
       const [status, setStatus] = useState({ isAnalyzing: false });
@@ -69,6 +65,15 @@
         checkKey();
       }, []);
 
+      const handleConnectKey = async () => {
+        if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+          await window.aistudio.openSelectKey();
+          setHasKey(true); 
+        } else {
+          alert("API Key selection is not available. Please ensure process.env.API_KEY is configured.");
+        }
+      };
+
       const FIXED_DESCRIPTION = `📍 DEALER LOCATION:
 🏢 25350 Pleasant Valley Rd, Suite 138
 Chantilly, VA 20152
@@ -80,23 +85,12 @@ Chantilly, VA 20152
 🚘 Ready for a test drive
 💬 Serious buyers only — message now before it’s gone!`;
 
-      const handleConnectKey = async () => {
-        if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-          await window.aistudio.openSelectKey();
-          setHasKey(true); // Assume success after interaction
-        } else {
-          alert("API Key selection is not available in this environment. Please ensure process.env.API_KEY is configured.");
-        }
-      };
-
       const analyzeVehicleUrl = async (targetUrl) => {
-        // Create instance inside function to ensure we use the most recent key state
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-        
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: `Analyze this vehicle listing URL and extract details: ${targetUrl}. 
-          Return a JSON object with year, make, model, price, mileage, vin, bodyStyle, exteriorColor, interiorColor, title. 
+          contents: `Extract vehicle details from: ${targetUrl}. 
+          Return JSON with: title, year, make, model, price, mileage, vin, bodyStyle, exteriorColor, interiorColor. 
           Normalize values for FB Marketplace.`,
           config: {
             tools: [{ googleSearch: {} }],
@@ -119,10 +113,7 @@ Chantilly, VA 20152
             }
           }
         });
-
-        const text = response.text;
-        if (!text) throw new Error("Empty response from AI.");
-        return JSON.parse(text);
+        return JSON.parse(response.text);
       };
 
       const handleAnalyze = async (e) => {
@@ -135,12 +126,7 @@ Chantilly, VA 20152
           setStatus({ isAnalyzing: false, data });
         } catch (err) {
           console.error(err);
-          if (err.message.includes("entity was not found")) {
-            setStatus({ isAnalyzing: false, error: 'API Key session expired. Please reconnect.' });
-            setHasKey(false);
-          } else {
-            setStatus({ isAnalyzing: false, error: 'Extraction failed. Make sure you are connected to the Gemini API.' });
-          }
+          setStatus({ isAnalyzing: false, error: 'Extraction failed. Reconnect API or check the URL.' });
         }
       };
 
@@ -157,73 +143,125 @@ Chantilly, VA 20152
     fuelType: 'Gasoline'
   })};
 
+  console.log('%c 🏁 AutoListing AI V11 Active ', 'background: #000; color: #fbbf24; font-weight: bold; padding: 10px; border-radius: 8px;');
+
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const setVal = (el, v) => {
+  
+  function setVal(el, v) {
     if (!el) return;
     const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
     if (setter) setter.call(el, v); else el.value = v;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-  };
-  const findT = (txt, sel = '*') => Array.from(document.querySelectorAll(sel)).find(el => el.innerText?.toLowerCase().includes(txt.toLowerCase()));
+  }
 
-  async function fillDrop(label, val) {
-    const l = findT(label, 'span, label, div');
-    if (!l) return;
-    let trig = l.closest('div')?.querySelector('[role="button"], [aria-haspopup]');
-    if (!trig) trig = l.parentElement.querySelector('[role="button"]');
+  function findText(txt, sel = '*') {
+    const s = txt.toLowerCase().trim();
+    return Array.from(document.querySelectorAll(sel)).find(el => (el.innerText?.toLowerCase().trim() || "").includes(s));
+  }
+
+  async function clickDropdown(label, val) {
+    const l = findText(label, 'span, div, label');
+    if (!l) return false;
+    let trig = null, curr = l;
+    for (let i = 0; i < 8; i++) {
+      if (!curr) break;
+      trig = curr.querySelector('[role="button"], [role="combobox"], [aria-haspopup]');
+      if (trig) break;
+      curr = curr.parentElement;
+    }
     if (trig) {
-      trig.click(); await sleep(500);
-      const opt = Array.from(document.querySelectorAll('[role="option"], [role="listbox"] span')).find(o => o.innerText.toLowerCase().includes(val.toLowerCase()));
-      if (opt) opt.click(); else document.body.click();
-      await sleep(500);
+      trig.click();
+      await sleep(600);
+      let opt = null;
+      for (let a = 0; a < 25; a++) {
+        await sleep(150);
+        opt = Array.from(document.querySelectorAll('[role="option"], [role="listbox"] span, div[class*="x193iq5w"]'))
+          .find(o => o.innerText.toLowerCase().trim().includes(val.toLowerCase().trim()));
+        if (opt && opt.offsetHeight > 0) break;
+      }
+      if (opt) { opt.click(); await sleep(800); return true; }
+      else { document.body.click(); }
+    }
+    return false;
+  }
+
+  // --- AUTOMATION SEQUENCE ---
+  await clickDropdown('vehicle type', 'Car/Truck');
+  await sleep(1000);
+
+  // ALWAYS EXCELLENT CONDITION
+  console.log('Enforcing Excellent Condition...');
+  await clickDropdown('vehicle condition', 'Excellent');
+  await clickDropdown('condition', 'Excellent');
+
+  await clickDropdown('year', vehicle.year);
+  await clickDropdown('make', vehicle.make);
+  await clickDropdown('body style', vehicle.bodyStyle);
+  await clickDropdown('fuel type', 'Gasoline');
+
+  const fields = { title: vehicle.title, price: vehicle.price, model: vehicle.model, mileage: vehicle.mileage, vin: vehicle.vin, description: vehicle.description };
+  for (const [k, v] of Object.entries(fields)) {
+    const l = findText(k, 'span, div, label');
+    if (l) {
+      let inp = null, curr = l;
+      for (let i = 0; i < 6; i++) {
+        if (!curr) break;
+        inp = curr.querySelector('input, textarea');
+        if (inp) break;
+        curr = curr.parentElement;
+      }
+      if (inp) setVal(inp, v);
     }
   }
 
-  // Workflow
-  await fillDrop('vehicle type', 'Car/Truck');
-  await fillDrop('condition', 'Excellent');
-  await fillDrop('year', vehicle.year);
-  await fillDrop('make', vehicle.make);
-  await fillDrop('body style', vehicle.bodyStyle);
+  await clickDropdown('exterior color', vehicle.exteriorColor);
+  await clickDropdown('interior color', vehicle.interiorColor);
 
-  const txts = { 'title': vehicle.title, 'price': vehicle.price, 'model': vehicle.model, 'mileage': vehicle.mileage, 'description': vehicle.description };
-  for (const [k, v] of Object.entries(txts)) {
-    const l = findT(k, 'span, label');
-    const inp = l?.closest('div')?.querySelector('input, textarea');
-    if (inp) setVal(inp, v);
+  // ALWAYS CHECK CLEAN TITLE
+  console.log('Enforcing Clean Title...');
+  const cleanLabels = Array.from(document.querySelectorAll('span, label, div')).filter(el => 
+    el.innerText?.toLowerCase().includes('clean title') || 
+    el.innerText?.toLowerCase().includes('has a clean title')
+  );
+  for (const l of cleanLabels) {
+    let p = l.parentElement;
+    for (let i = 0; i < 6; i++) {
+      if (!p) break;
+      const cb = p.querySelector('input[type="checkbox"]');
+      if (cb && !cb.checked) { cb.click(); break; }
+      const yes = Array.from(p.querySelectorAll('span, div')).find(s => s.innerText === 'Yes' && s.offsetHeight > 0);
+      if (yes) { yes.click(); break; }
+      p = p.parentElement;
+    }
   }
 
-  // Clean Title
-  const clean = findT('clean title');
-  if (clean) clean.closest('div')?.querySelector('input[type="checkbox"], [role="checkbox"]')?.click();
-
-  alert('V11 Automation Finished!');
-})();`;
+  alert('V11 Logic Complete! Condition is Excellent and Clean Title is Checked.');
+})();`.trim();
       }, [status.data]);
 
       return (
         <div className="max-w-6xl mx-auto px-6 py-12">
           <header className="mb-12 text-center">
-            <div className="inline-block p-4 bg-slate-900 rounded-3xl shadow-xl mb-6">
+            <div className="inline-block p-4 bg-slate-900 rounded-3xl shadow-xl mb-6 animate-float">
                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>
             </div>
             <h1 className="text-5xl font-black tracking-tight text-slate-900">AutoListing AI <span className="text-blue-600">V11</span></h1>
-            <p className="mt-4 text-slate-500 font-medium italic">Pro Marketplace Assistant for Chantilly Dealer</p>
+            <p className="mt-4 text-slate-500 font-medium italic">Strict Marketplace Automation for Chantilly Dealer</p>
           </header>
 
           {!hasKey ? (
             <div className="max-w-md mx-auto bg-white p-10 rounded-[2.5rem] shadow-2xl border border-blue-50 text-center animate-in zoom-in duration-300">
-              <h2 className="text-2xl font-black mb-4">Connect to Gemini</h2>
+              <h2 className="text-2xl font-black mb-4">Connect Gemini API</h2>
               <p className="text-slate-500 text-sm mb-8 leading-relaxed">
-                To enable AI extraction on GitHub Pages, you need to select a Gemini API key. 
-                This will allow the app to analyze dealer URLs for you.
+                To enable AI extraction on GitHub Pages, select your Gemini API key. 
+                This allows the app to analyze dealer listings automatically.
               </p>
               <button 
                 onClick={handleConnectKey}
                 className="w-full bg-blue-600 text-white font-black py-5 px-8 rounded-2xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 uppercase tracking-widest text-xs"
               >
-                Connect Gemini API
+                Select API Key
               </button>
               <p className="mt-6 text-[10px] text-slate-400 font-bold uppercase tracking-tighter">
                 Requires a paid GCP project • <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="text-blue-500 underline">Billing Info</a>
@@ -238,7 +276,7 @@ Chantilly, VA 20152
                     <input
                       type="url"
                       required
-                      placeholder="Paste vehicle listing URL..."
+                      placeholder="Paste dealer listing URL..."
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
                       className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm"
@@ -248,7 +286,7 @@ Chantilly, VA 20152
                       disabled={status.isAnalyzing}
                       className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-black disabled:opacity-50 transition-all uppercase tracking-widest text-xs"
                     >
-                      {status.isAnalyzing ? 'Analyzing...' : 'Fetch Specs'}
+                      {status.isAnalyzing ? 'Analyzing...' : 'Fetch Vehicle Data'}
                     </button>
                     {status.error && <p className="text-red-500 text-[10px] font-bold mt-2 uppercase text-center">{status.error}</p>}
                   </form>
@@ -256,16 +294,17 @@ Chantilly, VA 20152
 
                 {status.data && (
                   <div className="bg-blue-600 text-white p-8 rounded-[2rem] shadow-xl animate-in fade-in slide-in-from-left-4">
-                    <h3 className="text-xl font-black mb-6">Marketplace Script</h3>
+                    <h3 className="text-xl font-black mb-6">Automation Script</h3>
                     <ul className="text-blue-100 text-[11px] font-bold space-y-4 mb-8">
-                      <li className="flex items-center gap-2 italic">✓ Condition: Always Excellent</li>
-                      <li className="flex items-center gap-2 italic">✓ Clean Title: Checked</li>
+                      <li className="flex items-center gap-2 italic">✓ Condition: ALWAYS Excellent</li>
+                      <li className="flex items-center gap-2 italic">✓ Title: ALWAYS Checked</li>
+                      <li className="flex items-center gap-2 italic">✓ Fuel: Gasoline</li>
                     </ul>
                     <button
-                      onClick={() => { navigator.clipboard.writeText(autoFillScript); alert('V11 Script Copied!'); }}
-                      className="w-full bg-white text-blue-600 font-black py-4 rounded-2xl hover:bg-slate-50 transition-all uppercase tracking-widest text-xs"
+                      onClick={() => { navigator.clipboard.writeText(autoFillScript); alert('V11 Automation Script Copied!'); }}
+                      className="w-full bg-white text-blue-600 font-black py-4 rounded-2xl hover:bg-slate-50 transition-all uppercase tracking-widest text-xs shadow-lg"
                     >
-                      Copy Script
+                      Copy V11 Script
                     </button>
                   </div>
                 )}
@@ -275,13 +314,12 @@ Chantilly, VA 20152
                 <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 min-h-[500px] flex flex-col overflow-hidden">
                    <div className="bg-slate-50 border-b border-slate-100 p-6 px-10 flex justify-between items-center">
                       <h3 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Listing Verification</h3>
-                      {status.data && <span className="text-[9px] font-black bg-green-100 text-green-700 px-3 py-1 rounded-full">SPEC READY</span>}
                    </div>
                    <div className="p-10 flex-1">
                       {status.isAnalyzing ? (
                         <div className="flex flex-col items-center justify-center h-full space-y-4">
                           <div className="w-10 h-10 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
-                          <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">AI Engine Working...</p>
+                          <p className="text-slate-400 font-black text-[10px] uppercase tracking-widest">AI Engine Running...</p>
                         </div>
                       ) : status.data ? (
                         <div className="grid grid-cols-2 gap-8 animate-in fade-in duration-500">
@@ -292,7 +330,7 @@ Chantilly, VA 20152
                           <DisplayField label="Mileage" value={status.data.mileage} />
                           <DisplayField label="Body Style" value={status.data.bodyStyle} />
                           <div className="col-span-2">
-                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">V11 Description Template</label>
+                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Fixed Template Description</label>
                              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-sm whitespace-pre-wrap text-slate-600 leading-relaxed italic">
                                {status.data.description}
                              </div>
@@ -301,7 +339,7 @@ Chantilly, VA 20152
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full text-slate-300">
                           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="mb-4 opacity-20"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7"/><path d="m9 11 3 3L22 4"/><path d="M17 17v5"/><path d="M14 19h6"/></svg>
-                          <p className="font-bold italic">Paste a URL to generate technical details.</p>
+                          <p className="font-bold italic">Paste a vehicle URL to extract details.</p>
                         </div>
                       )}
                    </div>
